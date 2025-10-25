@@ -1,59 +1,144 @@
-import { useState } from "react";
-import { MessageSquare, Users, Plus, Send, LogOut, Hash } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { MessageSquare, Users, Plus, Send, LogOut, Hash, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useChatRoom, Room } from "@/hooks/useChatRoom";
+import { FileUpload } from "@/components/chat/FileUpload";
+import { MessageReactions } from "@/components/chat/MessageReactions";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 const Chat = () => {
   const navigate = useNavigate();
-  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const { user, signOut } = useAuth();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  
-  const rooms = [
-    { id: "general", name: "general" },
-    { id: "fun", name: "for fun" },
-    { id: "study", name: "study group" },
-  ];
+  const [uploadedFile, setUploadedFile] = useState<{ url: string; name: string } | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const members = [
-    { id: 1, name: "dinesh", status: "online" },
-    { id: 2, name: "alice", status: "online" },
-    { id: 3, name: "bob", status: "away" },
-  ];
+  const {
+    messages,
+    members,
+    typingUsers,
+    loading,
+    sendMessage,
+    addReaction,
+    removeReaction,
+    updateTypingIndicator,
+    joinRoom,
+  } = useChatRoom(selectedRoomId);
 
-  const messages = selectedRoom ? [
-    { id: 1, user: "alice", content: "Hey everyone!", timestamp: "10:30 AM" },
-    { id: 2, user: "dinesh", content: "Hello! How's it going?", timestamp: "10:32 AM" },
-    { id: 3, user: "bob", content: "Working on the new features", timestamp: "10:35 AM" },
-  ] : [];
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (message.trim() && selectedRoom) {
-      // Handle message sending
-      setMessage("");
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth");
     }
+  }, [user, navigate]);
+
+  // Fetch rooms
+  useEffect(() => {
+    const fetchRooms = async () => {
+      const { data, error } = await supabase
+        .from("rooms")
+        .select("*")
+        .order("name");
+
+      if (error) {
+        console.error("Failed to load rooms:", error);
+      } else {
+        setRooms(data || []);
+      }
+    };
+
+    fetchRooms();
+
+    // Subscribe to room changes
+    const channel = supabase
+      .channel("rooms")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "rooms",
+        },
+        () => {
+          fetchRooms();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Join room when selected
+  useEffect(() => {
+    if (selectedRoomId && user) {
+      joinRoom(selectedRoomId);
+    }
+  }, [selectedRoomId, user]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((!message.trim() && !uploadedFile) || !selectedRoomId) return;
+
+    await sendMessage(
+      message || "(sent a file)",
+      uploadedFile?.url,
+      uploadedFile?.name
+    );
+    
+    setMessage("");
+    setUploadedFile(null);
   };
+
+  const handleTyping = () => {
+    updateTypingIndicator();
+    
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      // Typing indicator will naturally expire after 5 seconds
+    }, 3000);
+  };
+
+  const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
+  const currentProfile = user ? { username: user.email?.split("@")[0] || "User" } : null;
+
+  if (!user) return null;
 
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="h-16 border-b border-border bg-chat-sidebar px-4 flex items-center justify-between">
+      <header className="h-16 border-b border-border bg-chat-sidebar px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg gradient-primary flex items-center justify-center shadow-purple">
             <MessageSquare className="w-5 h-5 text-white" />
           </div>
           <div>
             <h1 className="font-bold text-lg">Chat Server</h1>
-            <p className="text-xs text-muted-foreground">@dinesh</p>
+            <p className="text-xs text-muted-foreground">@{currentProfile?.username}</p>
           </div>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/")}
+          onClick={signOut}
           className="gap-2"
         >
           <LogOut className="w-4 h-4" />
@@ -61,10 +146,10 @@ const Chat = () => {
         </Button>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Rooms Sidebar */}
-        <aside className="w-64 bg-chat-sidebar border-r border-border flex flex-col">
-          <div className="p-4 border-b border-border flex items-center justify-between">
+        <aside className="w-64 bg-chat-sidebar border-r border-border flex flex-col shrink-0">
+          <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
             <h2 className="font-semibold">Rooms</h2>
             <Button size="icon" variant="ghost" className="h-8 w-8">
               <Plus className="w-4 h-4" />
@@ -75,15 +160,15 @@ const Chat = () => {
               {rooms.map((room) => (
                 <button
                   key={room.id}
-                  onClick={() => setSelectedRoom(room.id)}
+                  onClick={() => setSelectedRoomId(room.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                    selectedRoom === room.id
+                    selectedRoomId === room.id
                       ? "bg-chat-active text-white"
                       : "hover:bg-chat-hover text-muted-foreground"
                   }`}
                 >
-                  <Hash className="w-5 h-5" />
-                  <span className="font-medium">{room.name}</span>
+                  <Hash className="w-5 h-5 shrink-0" />
+                  <span className="font-medium truncate">{room.name}</span>
                 </button>
               ))}
             </div>
@@ -91,44 +176,108 @@ const Chat = () => {
         </aside>
 
         {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col bg-chat-main">
+        <main className="flex-1 flex flex-col bg-chat-main min-w-0">
           {selectedRoom ? (
             <>
               {/* Chat Header */}
-              <div className="h-14 border-b border-border px-6 flex items-center">
+              <div className="h-14 border-b border-border px-6 flex items-center shrink-0">
                 <Hash className="w-5 h-5 text-muted-foreground mr-2" />
-                <h3 className="font-semibold">{rooms.find(r => r.id === selectedRoom)?.name}</h3>
+                <div>
+                  <h3 className="font-semibold">{selectedRoom.name}</h3>
+                  {selectedRoom.description && (
+                    <p className="text-xs text-muted-foreground">{selectedRoom.description}</p>
+                  )}
+                </div>
               </div>
 
               {/* Messages */}
               <ScrollArea className="flex-1 px-6 py-4">
-                <div className="space-y-4">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className="flex gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback className="bg-primary text-white">
-                          {msg.user[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <div className="flex items-baseline gap-2 mb-1">
-                          <span className="font-semibold text-sm">{msg.user}</span>
-                          <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
+                {loading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-muted-foreground">Loading messages...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {messages.map((msg) => {
+                      const isOwnMessage = msg.user_id === user.id;
+                      return (
+                        <div key={msg.id} className="flex gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarFallback className="bg-primary text-white">
+                              {msg.profiles.username[0].toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 mb-1">
+                              <span className="font-semibold text-sm">{msg.profiles.username}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(msg.created_at).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                            <p className="text-sm break-words">{msg.content}</p>
+                            
+                            {msg.file_url && (
+                              <a
+                                href={msg.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 mt-2 px-3 py-2 bg-chat-bubble rounded-lg text-sm hover:bg-chat-hover transition-colors"
+                              >
+                                <Download className="w-4 h-4" />
+                                {msg.file_name}
+                              </a>
+                            )}
+
+                            <MessageReactions
+                              reactions={msg.message_reactions || []}
+                              onAddReaction={(emoji) => addReaction(msg.id, emoji)}
+                              onRemoveReaction={(emoji) => removeReaction(msg.id, emoji)}
+                            />
+                          </div>
                         </div>
-                        <p className="text-sm">{msg.content}</p>
+                      );
+                    })}
+                    
+                    {typingUsers.length > 0 && (
+                      <div className="flex gap-3 text-sm text-muted-foreground italic">
+                        <div className="w-10" />
+                        <span>
+                          {typingUsers.map(u => u.profiles.username).join(", ")} {typingUsers.length === 1 ? "is" : "are"} typing...
+                        </span>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    )}
+                    
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
               </ScrollArea>
 
               {/* Message Input */}
-              <div className="p-4 border-t border-border">
+              <div className="p-4 border-t border-border shrink-0">
+                {uploadedFile && (
+                  <div className="mb-2 px-3 py-2 bg-chat-bubble rounded-lg text-sm flex items-center justify-between">
+                    <span className="truncate">{uploadedFile.name}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setUploadedFile(null)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                )}
                 <form onSubmit={handleSendMessage} className="flex gap-2">
+                  <FileUpload onFileUploaded={(url, name) => setUploadedFile({ url, name })} />
                   <Input
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    placeholder={`Message #${rooms.find(r => r.id === selectedRoom)?.name}`}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      handleTyping();
+                    }}
+                    placeholder={`Message #${selectedRoom.name}`}
                     className="flex-1 bg-input border-border"
                   />
                   <Button type="submit" className="gradient-primary shadow-purple">
@@ -157,10 +306,13 @@ const Chat = () => {
         </main>
 
         {/* Members Sidebar */}
-        <aside className="w-64 bg-chat-sidebar border-l border-border flex flex-col">
-          <div className="p-4 border-b border-border flex items-center gap-2">
+        <aside className="w-64 bg-chat-sidebar border-l border-border flex flex-col shrink-0">
+          <div className="p-4 border-b border-border flex items-center gap-2 shrink-0">
             <Users className="w-5 h-5 text-muted-foreground" />
             <h2 className="font-semibold">Members</h2>
+            {selectedRoom && (
+              <span className="text-xs text-muted-foreground">({members.length})</span>
+            )}
           </div>
           {selectedRoom ? (
             <ScrollArea className="flex-1">
@@ -173,16 +325,16 @@ const Chat = () => {
                     <div className="relative">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback className="bg-secondary text-foreground text-xs">
-                          {member.name[0].toUpperCase()}
+                          {member.profiles.username[0].toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div
                         className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-chat-sidebar ${
-                          member.status === "online" ? "bg-green-500" : "bg-yellow-500"
+                          member.profiles.status === "online" ? "bg-green-500" : "bg-gray-500"
                         }`}
                       />
                     </div>
-                    <span className="text-sm font-medium">{member.name}</span>
+                    <span className="text-sm font-medium truncate">{member.profiles.username}</span>
                   </div>
                 ))}
               </div>

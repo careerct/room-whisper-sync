@@ -1,26 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MessageSquare } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 const Auth = () => {
   const [isSignIn, setIsSignIn] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
+  const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (user) {
+      navigate("/chat");
+    }
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // For now, just simulate authentication
-    if (email && password) {
-      toast.success(isSignIn ? "Signed in successfully!" : "Account created successfully!");
-      navigate("/chat");
+    if (isSignIn) {
+      await signIn(email, password);
     } else {
-      toast.error("Please fill in all fields");
+      await signUp(email, password, username);
     }
   };
 
@@ -63,6 +69,20 @@ const Auth = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {!isSignIn && (
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="johndoe"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="bg-input border-border"
+                  required={!isSignIn}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -72,6 +92,7 @@ const Auth = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="bg-input border-border"
+                required
               />
             </div>
             <div className="space-y-2">
@@ -83,6 +104,8 @@ const Auth = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="bg-input border-border"
+                required
+                minLength={6}
               />
             </div>
             <Button type="submit" className="w-full gradient-primary shadow-purple">
