@@ -11,6 +11,16 @@ import { FileUpload } from "@/components/chat/FileUpload";
 import { MessageReactions } from "@/components/chat/MessageReactions";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 const Chat = () => {
   const navigate = useNavigate();
@@ -19,6 +29,9 @@ const Chat = () => {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [uploadedFile, setUploadedFile] = useState<{ url: string; name: string } | null>(null);
+  const [createRoomOpen, setCreateRoomOpen] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomDescription, setNewRoomDescription] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -117,6 +130,37 @@ const Chat = () => {
     }, 3000);
   };
 
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoomName.trim()) {
+      toast.error("Room name is required");
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("rooms")
+        .insert({
+          name: newRoomName.trim(),
+          description: newRoomDescription.trim() || null,
+          created_by: user?.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success("Room created successfully!");
+      setCreateRoomOpen(false);
+      setNewRoomName("");
+      setNewRoomDescription("");
+      setSelectedRoomId(data.id);
+    } catch (error) {
+      console.error("Failed to create room:", error);
+      toast.error("Failed to create room");
+    }
+  };
+
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const currentProfile = user ? { username: user.email?.split("@")[0] || "User" } : null;
 
@@ -151,9 +195,44 @@ const Chat = () => {
         <aside className="w-64 bg-chat-sidebar border-r border-border flex flex-col shrink-0">
           <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
             <h2 className="font-semibold">Rooms</h2>
-            <Button size="icon" variant="ghost" className="h-8 w-8">
-              <Plus className="w-4 h-4" />
-            </Button>
+            <Dialog open={createRoomOpen} onOpenChange={setCreateRoomOpen}>
+              <DialogTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-8 w-8">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New Room</DialogTitle>
+                  <DialogDescription>
+                    Create a new chat room for conversations
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleCreateRoom} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="roomName">Room Name</Label>
+                    <Input
+                      id="roomName"
+                      value={newRoomName}
+                      onChange={(e) => setNewRoomName(e.target.value)}
+                      placeholder="Enter room name"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="roomDescription">Description (Optional)</Label>
+                    <Textarea
+                      id="roomDescription"
+                      value={newRoomDescription}
+                      onChange={(e) => setNewRoomDescription(e.target.value)}
+                      placeholder="Enter room description"
+                      rows={3}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full">Create Room</Button>
+                </form>
+              </DialogContent>
+            </Dialog>
           </div>
           <ScrollArea className="flex-1">
             <div className="p-2 space-y-1">
