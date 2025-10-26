@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageSquare, Users, Plus, Send, LogOut, Hash, Download } from "lucide-react";
+import { MessageSquare, Users, Plus, Send, LogOut, Hash, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -161,6 +161,27 @@ const Chat = () => {
     }
   };
 
+  const handleDeleteRoom = async (roomId: string) => {
+    if (!confirm("Are you sure you want to delete this room?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("rooms")
+        .delete()
+        .eq("id", roomId);
+
+      if (error) throw error;
+
+      toast.success("Room deleted successfully!");
+      if (selectedRoomId === roomId) {
+        setSelectedRoomId(null);
+      }
+    } catch (error) {
+      console.error("Failed to delete room:", error);
+      toast.error("Failed to delete room");
+    }
+  };
+
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const currentProfile = user ? { username: user.email?.split("@")[0] || "User" } : null;
 
@@ -237,18 +258,35 @@ const Chat = () => {
           <ScrollArea className="flex-1">
             <div className="p-2 space-y-1">
               {rooms.map((room) => (
-                <button
+                <div
                   key={room.id}
-                  onClick={() => setSelectedRoomId(room.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors ${
                     selectedRoomId === room.id
                       ? "bg-chat-active text-white"
                       : "hover:bg-chat-hover text-muted-foreground"
                   }`}
                 >
-                  <Hash className="w-5 h-5 shrink-0" />
-                  <span className="font-medium truncate">{room.name}</span>
-                </button>
+                  <button
+                    onClick={() => setSelectedRoomId(room.id)}
+                    className="flex items-center gap-3 flex-1 min-w-0"
+                  >
+                    <Hash className="w-5 h-5 shrink-0" />
+                    <span className="font-medium truncate">{room.name}</span>
+                  </button>
+                  {room.created_by === user?.id && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 hover:bg-destructive hover:text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteRoom(room.id);
+                      }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
               ))}
             </div>
           </ScrollArea>

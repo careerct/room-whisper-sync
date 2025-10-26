@@ -7,6 +7,7 @@ export interface Room {
   id: string;
   name: string;
   description: string | null;
+  created_by: string | null;
 }
 
 export interface Message {
