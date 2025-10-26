@@ -21,6 +21,12 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 const Chat = () => {
   const navigate = useNavigate();
@@ -258,35 +264,32 @@ const Chat = () => {
           <ScrollArea className="flex-1">
             <div className="p-2 space-y-1">
               {rooms.map((room) => (
-                <div
-                  key={room.id}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors ${
-                    selectedRoomId === room.id
-                      ? "bg-chat-active text-white"
-                      : "hover:bg-chat-hover text-muted-foreground"
-                  }`}
-                >
-                  <button
-                    onClick={() => setSelectedRoomId(room.id)}
-                    className="flex items-center gap-3 flex-1 min-w-0"
-                  >
-                    <Hash className="w-5 h-5 shrink-0" />
-                    <span className="font-medium truncate">{room.name}</span>
-                  </button>
-                  {room.created_by === user?.id && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6 shrink-0 hover:bg-destructive hover:text-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteRoom(room.id);
-                      }}
+                <ContextMenu key={room.id}>
+                  <ContextMenuTrigger>
+                    <button
+                      onClick={() => setSelectedRoomId(room.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                        selectedRoomId === room.id
+                          ? "bg-chat-active text-white"
+                          : "hover:bg-chat-hover text-muted-foreground"
+                      }`}
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                      <Hash className="w-5 h-5 shrink-0" />
+                      <span className="font-medium truncate">{room.name}</span>
+                    </button>
+                  </ContextMenuTrigger>
+                  {room.created_by === user?.id && (
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => handleDeleteRoom(room.id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete Room
+                      </ContextMenuItem>
+                    </ContextMenuContent>
                   )}
-                </div>
+                </ContextMenu>
               ))}
             </div>
           </ScrollArea>
